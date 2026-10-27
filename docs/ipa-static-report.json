@@ -1,5 +1,98 @@
 {
-  "report": "A generated report is available locally from tools/inspect_ipa.py.",
-  "source": "PinaTV_2.0.4_decrypted.ipa",
-  "limitations": ["No original source code was present.", "No modified IPA was produced.", "No media endpoint was supplied, so actual 1080p stream availability is unverified."]
+  "package": {
+    "bundle_id": "com.kevin.pinatv",
+    "version": "2.0.4",
+    "build": "1",
+    "minimum_ios": "15.0",
+    "executable": "PinaTV",
+    "executable_size_bytes": 28819152,
+    "mach_o_magic_hex": "cffaedfe",
+    "cryptid_from_llvm_objdump": 0
+  },
+  "resource_bundles": [
+    "AdsGlobalSDK.bundle",
+    "GoogleMobileAdsResources.bundle",
+    "IronSourceAdQualityPrivacyInfo.bundle",
+    "PAGAdSDK.bundle",
+    "TikTokBusinessSDK.bundle",
+    "TradPlusADX.bundle",
+    "TradPlusAds.bundle",
+    "UnityAdsResources.bundle",
+    "UnityCoherenceLib.bundle",
+    "UserMessagingPlatformResources.bundle",
+    "VungleAds.bundle"
+  ],
+  "feature_markers_found": [
+    "ResolutionSelectorPanel",
+    "ResolutionSelectorSheet",
+    "ResolutionOption",
+    "Vip1080RequiredPromptModifier",
+    "VIPService",
+    "TradPlusAdService",
+    "lockPlaybackResolution",
+    "selectedResolution",
+    "startResolution",
+    "vip1080ResolutionTitle",
+    "vip1080ResolutionMessage",
+    "rewardAdTimePoints1080p",
+    "vipBenefitNoAds",
+    "vipBenefitHdQuality",
+    "isUserAPurchaser",
+    "is_user_a_purchaser"
+  ],
+  "related_swift_classes": [
+    "_TtC6PinaTV10APIService",
+    "_TtC6PinaTV10VIPService",
+    "_TtC6PinaTV12VideoService",
+    "_TtC6PinaTV13ConfigService",
+    "_TtC6PinaTV14BannerAdLoader",
+    "_TtC6PinaTV15BannerAdManager",
+    "_TtC6PinaTV15DownloadService",
+    "_TtC6PinaTV15HLSAESKeyLoader",
+    "_TtC6PinaTV15SplashAdHandler",
+    "_TtC6PinaTV17TradPlusAdService",
+    "_TtC6PinaTV18MP4DownloadService",
+    "_TtC6PinaTV18VipStoreKitManager",
+    "_TtC6PinaTV19DownloadPathManager",
+    "_TtC6PinaTV19M3U8DownloadService",
+    "_TtC6PinaTV20VideoDetailViewModel",
+    "_TtC6PinaTV21BannerAdContainerView",
+    "_TtC6PinaTV23HLSAssetDownloadService",
+    "_TtC6PinaTV24SplashAdSuppressionScope",
+    "_TtC6PinaTV25SplashAdPresentationGuard",
+    "_TtC6PinaTV9AppConfig",
+    "_TtC6PinaTVP33_21CD810D8C5C0FFA4B2420A4611F7D3E23FocusDownloadTapCatcher"
+  ],
+  "api_routes_found": [
+    "/vlab/abtest/config",
+    "/vlab/episode/detail",
+    "/vlab/market/banner/list",
+    "/vlab/show/detail",
+    "/vlab/show/search",
+    "/vlab/user/app/store/transaction",
+    "/vlab/version/check"
+  ],
+  "localization_strings": {
+    "en": {
+      "guide.resolution.message": "Change resolution here. VIP unlocks 1080p.",
+      "reward_ad.prompt.message": "Watch a short ad to continue, log in, or subscribe to VIP for an ad-free experience.",
+      "vip1080ResolutionMessage": "1080p Ultra HD is an exclusive VIP feature. Subscribe to unlock a clearer viewing experience.",
+      "vip1080ResolutionTitle": "VIP Exclusive Quality",
+      "vipBenefitHdQualityDesc": "Stream and download in 1080p",
+      "vipBenefitNoAdsDesc": "No splash or in-video ads"
+    },
+    "ar": {
+      "guide.resolution.message": "غيّر الدقة من هنا. VIP يفتح 1080p.",
+      "reward_ad.prompt.message": "شاهد إعلاناً قصيراً للمتابعة، أو سجّل الدخول أو اشترك في VIP.",
+      "vip1080ResolutionMessage": "1080p Ultra HD حصرية لـ VIP. اشترك لتجربة مشاهدة أوضح.",
+      "vip1080ResolutionTitle": "جودة حصرية لـ VIP",
+      "vipBenefitHdQualityDesc": "بث وتنزيل بدقة 1080p",
+      "vipBenefitNoAdsDesc": "بدون إعلانات عند الفتح أو أثناء التشغيل"
+    }
+  },
+  "limitations": [
+    "Static string inspection does not reveal the full control-flow logic.",
+    "The presence of an SDK or route does not prove it is active at runtime.",
+    "This tool does not modify the IPA, test playback, or establish the availability of 1080p media."
+  ]
 }
