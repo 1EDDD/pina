@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           make clean all FINALPACKAGE=1
-          output="$(find .theos -type f -name 'PinaTVLabInjected.dylib' -print -quit)"
+          output="$(find . -type f -name 'PinaTVLabInjected.dylib' -not -path './theos/*' -print -quit)"
           if [ -z "$output" ]; then
             echo "PinaTVLabInjected.dylib was not produced."
             find . -type f -name '*.dylib' -print
