@@ -41,21 +41,34 @@ jobs:
           orion: false
 
       - name: Build substrate-free injected dylib
+        shell: bash
         working-directory: injected
         run: |
-          set -euo pipefail
-          make clean all FINALPACKAGE=1
-          output="$(find . -type f -name 'PinaTVLabInjected.dylib' -not -path './theos/*' -print -quit)"
-          if [ -z "$output" ]; then
-            echo "PinaTVLabInjected.dylib was not produced."
-            find . -type f -name '*.dylib' -print
-            exit 1
-          fi
-          mkdir -p ../artifacts
-          cp "$output" ../artifacts/PinaTVLabInjected.dylib
-          file ../artifacts/PinaTVLabInjected.dylib
+          set -o pipefail
+          (set -euo pipefail
+           make clean all FINALPACKAGE=1
+           output="$(find . -type f -name 'PinaTVLabInjected.dylib' -not -path './theos/*' -not -path './.git/*' -print -quit)"
+           if [ -z "$output" ]; then
+             echo "PinaTVLabInjected.dylib was not produced."
+             find . -type f -name '*.dylib' -not -path './theos/*' -print
+             exit 1
+           fi
+           mkdir -p ../artifacts
+           cp "$output" ../artifacts/PinaTVLabInjected.dylib
+           file ../artifacts/PinaTVLabInjected.dylib
+          ) 2>&1 | tee "$RUNNER_TEMP/theos-build.log"
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: theos-build-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/theos-build.log
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload standalone dylib
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: PinaTVLabInjected-dylib
