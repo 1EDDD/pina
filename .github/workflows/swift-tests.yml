@@ -27,9 +27,30 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2
+
       - name: Run Swift unit tests
-        run: swift test
+        shell: bash
+        run: |
+          set -o pipefail
+          swift test 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
+
       - name: Run IPA injector tests
-        run: python3 -m unittest discover -s tests -v
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m unittest discover -s tests -v 2>&1 | tee "$RUNNER_TEMP/ipa-tests.log"
+
+      - name: Upload diagnostic test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/swift-test.log
+            ${{ runner.temp }}/ipa-tests.log
+          if-no-files-found: warn
+          retention-days: 7
