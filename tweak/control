@@ -1,0 +1,9 @@
+Package: com.1eddd.pinatvlab-tweak
+Name: PinaTV Lab Diagnostic Tweak
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Description: Diagnostic-only PinaTV tweak that prefers available 1080p HLS renditions and logs sanitized playback/runtime details.
+Maintainer: 1EDDD
+Author: 1EDDD
+Section: Tweaks
+Depends: mobilesubstrate
