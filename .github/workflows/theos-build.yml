@@ -1,0 +1,50 @@
+name: Build diagnostic Theos tweak
+
+on:
+  push:
+    paths:
+      - "tweak/**"
+      - ".github/workflows/theos-build.yml"
+  pull_request:
+    paths:
+      - "tweak/**"
+      - ".github/workflows/theos-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-rootless:
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Theos toolchain
+        uses: waruhachi/theos-action@v2.6.3
+        with:
+          theos-src: theos/theos
+          theos-branch: master
+          sdks-src: theos/sdks
+          sdks-branch: master
+          remotelog: false
+          libgcuniversal: false
+          altlist: false
+          comet: false
+          orion: false
+
+      - name: Build rootless diagnostic package
+        working-directory: tweak
+        run: |
+          set -euo pipefail
+          make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+          test -n "$(find packages -maxdepth 1 -name '*.deb' -print -quit)"
+
+      - name: Upload diagnostic package
+        uses: actions/upload-artifact@v4
+        with:
+          name: PinaTVLabTweak-rootless
+          path: tweak/packages/*.deb
+          if-no-files-found: error
+          retention-days: 14
