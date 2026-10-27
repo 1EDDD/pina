@@ -1,0 +1,5 @@
+{
+  "report": "A generated report is available locally from tools/inspect_ipa.py.",
+  "source": "PinaTV_2.0.4_decrypted.ipa",
+  "limitations": ["No original source code was present.", "No modified IPA was produced.", "No media endpoint was supplied, so actual 1080p stream availability is unverified."]
+}
