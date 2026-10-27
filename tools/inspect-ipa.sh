@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 /path/to/app.ipa" >&2
+  echo "Usage: bash tools/inspect-ipa.sh /path/to/app.ipa" >&2
   exit 2
 fi
 
@@ -23,10 +23,23 @@ if [[ -z "$APP" ]]; then
 fi
 
 PLIST="$APP/Info.plist"
-EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST" 2>/dev/null || true)"
-BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST" 2>/dev/null || true)"
-VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" 2>/dev/null || true)"
+plist_value() {
+  local key="$1"
+  if [[ -x /usr/libexec/PlistBuddy ]]; then
+    /usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null && return 0
+  fi
+  python3 - "$PLIST" "$key" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], "rb") as stream:
+    data = plistlib.load(stream)
+value = data.get(sys.argv[2], "")
+print(value if value is not None else "")
+PY
+}
 
+EXECUTABLE="$(plist_value CFBundleExecutable)"
+BUNDLE_ID="$(plist_value CFBundleIdentifier)"
+VERSION="$(plist_value CFBundleShortVersionString)"
 printf 'App: %s\nBundle ID: %s\nVersion: %s\nExecutable: %s\n' \
   "$(basename "$APP")" "$BUNDLE_ID" "$VERSION" "$EXECUTABLE"
 
@@ -35,14 +48,14 @@ if [[ -f "$BIN" ]]; then
   file "$BIN"
   if command -v llvm-objdump >/dev/null 2>&1; then
     llvm-objdump --macho --private-headers "$BIN" 2>/dev/null \
-      | grep -E 'cryptid|LC_ENCRYPTION_INFO|LC_ENCRYPTION_INFO_64|Mach header|cputype|filetype' \
+      | grep -E 'LC_ENCRYPTION_INFO|Mach header|cputype|filetype|cryptid' \
       | head -20 || true
   fi
   if command -v strings >/dev/null 2>&1; then
     echo
     echo 'Relevant embedded identifiers (read-only scan):'
     strings -a "$BIN" | grep -Ei \
-      'ResolutionSelectorPanel|Vip1080RequiredPromptModifier|lockPlaybackResolution|vip1080ResolutionTitle|rewardAdTimePoints1080p|TradPlusAdService|VIPService|api\\.pinatv' \
+      'ResolutionSelectorPanel|Vip1080RequiredPromptModifier|lockPlaybackResolution|vip1080ResolutionTitle|rewardAdTimePoints1080p|TradPlusAdService|VIPService|api\.pinatv' \
       | sort -u || true
   fi
 fi
