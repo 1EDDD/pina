@@ -1,7 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 #import <stdlib.h>
 
 static BOOL PinaTVLabEnabled = YES;
@@ -17,6 +16,19 @@ static BOOL PinaTVLabContainsAny(NSString *value, NSArray<NSString *> *needles) 
         if ([lower containsString:needle]) return YES;
     }
     return NO;
+}
+
+static void PinaTVLabLogMediaURL(NSURL *url) {
+    if (!url) return;
+    // Deliberately omit query and fragment so signed URLs/tokens are not logged.
+    NSString *host = url.host.length ? url.host : @"<no-host>";
+    NSString *path = url.path.length ? url.path : @"/";
+    PinaTVLabLog([NSString stringWithFormat:@"AVPlayerItem media URL host/path: %@%@", host, path]);
+}
+
+static void PinaTVLabPrefer1080p(AVPlayerItem *item) {
+    if (!PinaTVLabEnabled || !item) return;
+    item.preferredMaximumResolution = CGSizeMake(1920.0, 1080.0);
 }
 
 static NSArray<NSString *> *PinaTVLabRuntimeClassNeedles(void) {
@@ -47,9 +59,7 @@ static void PinaTVLabLogSelectorsForClass(Class cls, BOOL classMethods) {
         const char *rawName = sel_getName(selector);
         if (!rawName) continue;
         NSString *name = [NSString stringWithUTF8String:rawName];
-        if (PinaTVLabContainsAny(name, needles)) {
-            [matches addObject:name];
-        }
+        if (PinaTVLabContainsAny(name, needles)) [matches addObject:name];
     }
     free(methods);
 
@@ -86,9 +96,31 @@ static void PinaTVLabScanRuntimeClasses(void) {
     free(classes);
 }
 
-/// Preference only. AVPlayer cannot select a rendition that the media source does not offer.
 %hook AVPlayerItem
 
+- (instancetype)initWithURL:(NSURL *)URL {
+    AVPlayerItem *item = %orig(URL);
+    if (PinaTVLabEnabled && item) {
+        PinaTVLabLogMediaURL(URL);
+        PinaTVLabPrefer1080p(item);
+    }
+    return item;
+}
+
+- (instancetype)initWithAsset:(AVAsset *)asset {
+    AVPlayerItem *item = %orig(asset);
+    if (PinaTVLabEnabled && item) {
+        if ([asset isKindOfClass:[AVURLAsset class]]) {
+            PinaTVLabLogMediaURL(((AVURLAsset *)asset).URL);
+        } else {
+            PinaTVLabLog(@"AVPlayerItem initialized with a non-URL AVAsset");
+        }
+        PinaTVLabPrefer1080p(item);
+    }
+    return item;
+}
+
+/// Maximum-resolution preference only; it does not change server responses or membership state.
 - (void)setPreferredMaximumResolution:(CGSize)resolution {
     if (PinaTVLabEnabled) {
         CGSize preferred = CGSizeMake(1920.0, 1080.0);
@@ -113,9 +145,7 @@ static void PinaTVLabLogRelevantViews(UIView *view) {
     if (PinaTVLabContainsAny(className, needles)) {
         PinaTVLabLog([NSString stringWithFormat:@"Observed ad-related view class: %@", className]);
     }
-    for (UIView *child in view.subviews) {
-        PinaTVLabLogRelevantViews(child);
-    }
+    for (UIView *child in view.subviews) PinaTVLabLogRelevantViews(child);
 }
 
 %hook UIViewController
@@ -148,6 +178,6 @@ static void PinaTVLabLogRelevantViews(UIView *view) {
             return;
         }
         PinaTVLabLoggedClasses = [NSMutableSet set];
-        PinaTVLabLog(@"Loaded for PinaTV. 1080p preference and runtime diagnostics enabled; no ad/VIP checks are modified.");
+        PinaTVLabLog(@"Loaded for PinaTV. Prefers a genuine 1080p rendition where available and enables runtime diagnostics; no ad/VIP checks are modified.");
     }
 }
