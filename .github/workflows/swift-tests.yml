@@ -7,7 +7,7 @@ on:
       - "Sources/**"
       - "Tests/**"
       - "tests/**"
-      - "tools/inject_dylib.py"
+      - "tools/**"
       - ".github/workflows/swift-tests.yml"
   pull_request:
     paths:
@@ -15,7 +15,7 @@ on:
       - "Sources/**"
       - "Tests/**"
       - "tests/**"
-      - "tools/inject_dylib.py"
+      - "tools/**"
       - ".github/workflows/swift-tests.yml"
 
 concurrency:
