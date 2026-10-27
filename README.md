@@ -1,49 +1,59 @@
 # PinaTV Lab
 
-A source-controlled workspace for **static inspection of the supplied IPA** and for validating/selecting HLS resolutions in a player or media source you control.
+A source-controlled workspace for static inspection of the supplied PinaTV IPA, HLS variant selection, and a narrowly scoped diagnostic injection experiment.
 
 ## Findings from PinaTV 2.0.4
 
 - Bundle ID: `com.kevin.pinatv`; version 2.0.4, build 1; minimum iOS 15.
-- Main executable is an ARM64 Mach-O image. The supplied binary reports `cryptid = 0` in its Mach-O encryption metadata, meaning its main executable is not FairPlay-encrypted in this package. This does not mean it is source code or automatically re-signable.
-- Relevant code identifiers include `ResolutionSelectorPanel`, `ResolutionOption`, `Vip1080RequiredPromptModifier`, `VIPService`, `TradPlusAdService`, `selectedResolution`, `startResolution`, and `lockPlaybackResolution`.
-- API strings include `https://api.pinatv.xyz` and routes under `/vlab/`, including `/vlab/abtest/config`, `/vlab/episode/detail`, and `/vlab/user/app/store/transaction`.
-- Resources include TradPlus, Google Mobile Ads, Pangle/TikTok, Unity, Vungle, and other ad-related bundles.
-- English and Arabic localization explicitly label 1080p as VIP and say ad-free playback is a membership benefit.
+- The executable is a 64-bit ARM Mach-O image and has `cryptid = 0` in its Mach-O encryption metadata. This does not mean it is source code or automatically re-signable.
+- Playback/quality identifiers include `ResolutionSelectorPanel`, `ResolutionOption`, `Vip1080RequiredPromptModifier`, `VIPService`, `selectedResolution`, `startResolution`, and `lockPlaybackResolution`.
+- Ad-related identifiers include `TradPlusAdService`, `BannerAdLoader`, `BannerAdManager`, and splash-ad handlers.
+- API strings include `https://api.pinatv.xyz` and routes under `/vlab/`.
+- English and Arabic localization describe 1080p as VIP-exclusive and ad-free playback as a membership benefit.
 
-These are **static findings**, not proof of every runtime branch. The IPA alone cannot tell whether your separate private media server supplies a 1080p stream or changes the VIP/config responses.
+These are static findings, not proof of every runtime branch. The IPA alone cannot establish whether a separate private media server controls app configuration, VIP state, or the playlist actually passed to the player.
+
+## Experimental standalone diagnostic dylib
+
+`injected/Injected.m` is a standalone library that does not depend on MobileSubstrate. It targets only `com.kevin.pinatv`, requests AVFoundation's 1920×1080 maximum-resolution preference, and writes sanitized media URL host/path details to `Documents/PinaTVLab.log`. Query strings are omitted because they may contain signed tokens.
+
+After a successful GitHub Actions run, download the **PinaTVLabInjected-dylib** artifact. The `tools/inject_dylib.py` utility can embed it in a decrypted copy of this app:
+
+```bash
+python3 tools/inject_dylib.py \
+  /path/to/PinaTV_2.0.4_decrypted.ipa \
+  /path/to/PinaTVLabInjected.dylib \
+  /path/to/PinaTV_diagnostic.ipa \
+  --enable-file-sharing
+```
+
+The script adds an `LC_LOAD_DYLIB` command and places the library in `Frameworks`. The output is **not signed for installation**; it must be re-signed by a legitimate sideloading tool before use. With file sharing enabled, the app's Documents folder is exposed so the log can be retrieved in Files.
+
+This experiment only requests an actual 1080p rendition and collects diagnostics. It does **not** change VIP/purchase checks, unlock paid features, or suppress ads. A player preference cannot create a 1080p source or override a server that returns only 720p. Use a test copy and expect that unsupported injection or signing workflows can cause the app not to launch.
+
+A separate rootless jailbreak package is also built by the workflow as **PinaTVLabTweak-rootless**. It requires a compatible tweak-injection environment and is not a normal sideloaded IPA.
 
 ## HLS auto-1080p player helper
 
-- `Sources/HLSVariantParser.swift`: pure parser for HLS master playlists; recognizes actual variant URLs and resolutions.
-- `Sources/HLS1080Selector.swift`: fetches a master playlist and selects an advertised 1080p rendition, with an optional explicit fallback policy.
-- `Sources/HLSAutoPlayer.swift`: AVPlayer wrapper that prefers 1080p and starts the episode automatically; if the source lacks 1080p, it selects the best advertised rendition and exposes that fallback state.
-- It never upscales 720p content or fabricates a missing 1080p stream.
-- These files are for integration into a source project/player you control. They are not injected into the supplied PinaTV executable.
+- `Sources/HLSVariantParser.swift` parses HLS master playlists and resolves relative rendition URLs.
+- `Sources/HLS1080Selector.swift` chooses a genuine advertised 1080p variant or applies an explicit fallback policy.
+- `Sources/HLSAutoPlayer.swift` starts playback automatically and exposes the selected resolution/fallback state.
 
-## Inspect the IPA
+These files are for integration into a media client and streams you control or are authorized to access. They are not injected into the original app.
 
-Run:
+## Inspect and test
 
 ```bash
 python3 tools/inspect_ipa.py /path/to/PinaTV_2.0.4_decrypted.ipa
-# For JSON output:
-python3 tools/inspect_ipa.py /path/to/app.ipa --json
-```
-
-The tool reads the IPA directly from the ZIP container and does not extract, modify, re-sign, or upload it. A snapshot of the findings is in `docs/ipa-static-report.json`.
-
-## Test
-
-```bash
 swift test
+python3 -m unittest discover -s tests -v
 ```
 
-The HLS parser suite has been run locally: **6 tests passed, 0 failures**. GitHub Actions is configured to run the Swift package tests on macOS for pushes and pull requests.
+The static IPA inspector reads the ZIP container and does not patch binaries. GitHub Actions runs the Swift suite, tests the Mach-O injection utility, and builds the diagnostic binaries.
 
-## Scope / limitations
+## Limitations
 
-- This repository does not currently contain PinaTV's original Swift/Xcode source project.
-- No modified PinaTV IPA has been produced or tested.
-- A real 1080p result requires a 1080p variant in the source playlist, appropriate access rights, and integration into the app's actual playback path.
-- Reliable changes to the app's own ad/VIP behavior should be made in source/build configuration or through authorized controls for the service that governs those features.
+- The original PinaTV Swift/Xcode project is not present.
+- No VIP or ad behavior has been patched.
+- A real 1080p result requires the source playlist to advertise 1080p and the app's actual playback path to honor the AVFoundation preference.
+- The standalone dylib and IPA injection are experimental and require successful build, re-signing, installation, and on-device validation.
