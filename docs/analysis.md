@@ -2,39 +2,58 @@
 
 ## Package identity
 - Bundle ID: `com.kevin.pinatv`
-- App version: `2.0.4`, build `1`
+- Version/build: `2.0.4 (1)`
+- Minimum iOS: `15.0`
 - Main executable: `Payload/PinaTV.app/PinaTV`
-- Format: native ARM64 Mach-O; strings indicate a Swift app.
+- Executable size: 28,819,152 bytes
+- Format: ARM64 Mach-O; strings identify Swift runtime/class names.
+- Mach-O encryption field from the supplied package: `cryptid = 0`. This reports the main executable's encryption flag only; it is not a source recovery or signing guarantee.
 
 ## Quality and membership indicators
-The executable and localization resources contain identifiers including:
-- `lockPlaybackResolution`
-- `selectedResolution`
-- `startResolution`
-- `vip1080ResolutionTitle`
-- `vip1080ResolutionMessage`
+The executable contains:
+- `ResolutionSelectorPanel`, `ResolutionSelectorSheet`, `ResolutionOption`
+- `Vip1080RequiredPromptModifier`, `VIPService`, `VipStoreKitManager`
+- `lockPlaybackResolution`, `selectedResolution`, `startResolution`
+- `vip1080ResolutionTitle`, `vip1080ResolutionMessage`
 - `rewardAdTimePoints1080p`
-- `VIPService`
-- `Vip1080RequiredPromptModifier`
+- `vipBenefitNoAds`, `vipBenefitHdQuality`
+- `isUserAPurchaser`, `is_user_a_purchaser`
 
-The bundled Arabic/English localization labels describe 1080p as VIP-exclusive and mention rewarded-ad behavior. These strings establish that the app includes quality/membership flows; they do not identify the exact runtime branch by themselves.
+The English localization says: “Change resolution here. VIP unlocks 1080p.” It describes 1080p as a VIP-exclusive feature, and defines no-ads benefits as no splash or in-video ads. The Arabic localization communicates the same restrictions.
 
-## Advertising indicators
-The app bundle includes `TradPlusAdService`, splash-ad resources, and several ad SDKs/resources, including Google Mobile Ads, TikTok/Pangle, Unity Ads, Vungle, and IronSource-related components. Static presence does not prove every network is active at runtime.
+This shows quality selection and membership checks are implemented in the application. The precise branch logic and the role of remote configuration are not proven by string matches alone.
+
+## Ad-related components
+Bundled resources include:
+- `TradPlusAds.bundle`, `TradPlusADX.bundle`
+- `GoogleMobileAdsResources.bundle`
+- `PAGAdSDK.bundle` (Pangle/TikTok-related)
+- `UnityAdsResources.bundle`, `VungleAds.bundle`
+- `AdsGlobalSDK.bundle`, `TikTokBusinessSDK.bundle`
+- `UserMessagingPlatformResources.bundle`
+
+Swift class strings include `TradPlusAdService`, `BannerAdLoader`, `BannerAdManager`, and `SplashAdHandler`. SDK/resource presence is static evidence only; it does not establish which ad placement ran during a specific session.
 
 ## API/config indicators
-The executable includes `https://api.pinatv.xyz` and routes such as:
+The main executable contains `https://api.pinatv.xyz` and routes:
 - `/vlab/abtest/config`
 - `/vlab/episode/detail`
-- `/vlab/show/detail`
 - `/vlab/market/banner/list`
+- `/vlab/show/detail`, `/vlab/show/search`
+- `/vlab/user/app/store/transaction`
+- `/vlab/version/check`
 
-The IPA alone does not reveal whether a separate media server controls these API responses or membership state.
+The application also has `APIService`, `ConfigService`, and `VideoService` class names. The IPA alone cannot establish whether your private media server handles app configuration or supplies only media URLs.
 
-## What remains unverified
-- Whether any particular stream has a 1920x1080 HLS rendition.
-- Whether the private server is used only for media URLs or also controls app configuration.
-- Actual behavior on-device; this is static inspection only.
+## Practical 1080p requirement
+A client can choose 1080p only if the master playlist advertises a 1920×1080 variant (or a compatible wider variant with height 1080) and the media URL is reachable. A quality label or UI change cannot create a 1080p stream from 720p source material.
 
-## Practical implication
-A 1080p auto-select feature can only pick a 1080p source that the HLS master manifest actually advertises. `Sources/HLS1080Selector.swift` demonstrates that for a source app or player under the operator's control. It does not change the supplied PinaTV IPA, alter its VIP state, or suppress its ad SDK calls.
+The repository includes a tested HLS parser/selector for integration into a media client you control. It has six local unit tests and reports clearly when a 1080p variant does not exist.
+
+## Not yet completed
+- The original PinaTV Swift/Xcode project is not present in this repository.
+- No byte-level modification of the PinaTV executable has been made.
+- No modified IPA has been produced, re-signed, or tested on device.
+- Runtime playback and server availability were not tested; no media URL was supplied.
+
+The static inventory tool writes `docs/ipa-static-report.json`. It does not patch binaries or bypass app controls.
