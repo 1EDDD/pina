@@ -2,21 +2,98 @@
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <stdlib.h>
 
 static BOOL PinaTVLabEnabled = YES;
+static NSMutableSet<NSString *> *PinaTVLabLoggedClasses;
+
 static void PinaTVLabLog(NSString *message) {
     NSLog(@"[PinaTVLabTweak] %@", message);
 }
 
-/// This is an experimental preference hook, not a VIP bypass.
-/// AVPlayer can only play a 1080p rendition if the source provides one.
+static BOOL PinaTVLabContainsAny(NSString *value, NSArray<NSString *> *needles) {
+    NSString *lower = value.lowercaseString;
+    for (NSString *needle in needles) {
+        if ([lower containsString:needle]) return YES;
+    }
+    return NO;
+}
+
+static NSArray<NSString *> *PinaTVLabRuntimeClassNeedles(void) {
+    return @[@"vipservice", @"tradplusadservice", @"splashadhandler",
+             @"resolutionselector", @"resolutionoption", @"videoservice",
+             @"adservice", @"bannerad", @"rewardad", @"interstitialad",
+             @"googlemobileads", @"pangle", @"vungle", @"unityads"];
+}
+
+static NSArray<NSString *> *PinaTVLabSelectorNeedles(void) {
+    return @[@"vip", @"purchase", @"purchaser", @"resolution", @"quality",
+             @"playback", @"selected", @"startresolution", @"lockplayback",
+             @"present", @"showad", @"loadad", @"reward", @"interstitial",
+             @"banner", @"splash", @"tradplus", @"googlemobileads"];
+}
+
+/// Diagnostic-only: print Objective-C-visible selectors for relevant loaded classes.
+/// Pure Swift symbols that are not exposed to the Objective-C runtime will not appear.
+static void PinaTVLabLogSelectorsForClass(Class cls, BOOL classMethods) {
+    unsigned int count = 0;
+    Class target = classMethods ? object_getClass(cls) : cls;
+    Method *methods = class_copyMethodList(target, &count);
+    NSMutableArray<NSString *> *matches = [NSMutableArray array];
+    NSArray<NSString *> *needles = PinaTVLabSelectorNeedles();
+
+    for (unsigned int i = 0; i < count; i++) {
+        SEL selector = method_getName(methods[i]);
+        const char *rawName = sel_getName(selector);
+        if (!rawName) continue;
+        NSString *name = [NSString stringWithUTF8String:rawName];
+        if (PinaTVLabContainsAny(name, needles)) {
+            [matches addObject:name];
+        }
+    }
+    free(methods);
+
+    if (matches.count > 0) {
+        NSString *kind = classMethods ? @"class" : @"instance";
+        PinaTVLabLog([NSString stringWithFormat:@"%@ selectors %@.%@: %@",
+                      kind, NSStringFromClass(cls), @"", [matches componentsJoinedByString:@", "]]);
+    }
+}
+
+static void PinaTVLabScanRuntimeClasses(void) {
+    int count = objc_getClassList(NULL, 0);
+    if (count <= 0) return;
+
+    Class *classes = (Class *)calloc((size_t)count, sizeof(Class));
+    if (!classes) return;
+    int actual = objc_getClassList(classes, count);
+    NSArray<NSString *> *needles = PinaTVLabRuntimeClassNeedles();
+
+    for (int i = 0; i < actual; i++) {
+        Class cls = classes[i];
+        NSString *name = NSStringFromClass(cls);
+        if (!name || !PinaTVLabContainsAny(name, needles)) continue;
+
+        @synchronized (PinaTVLabLoggedClasses) {
+            if ([PinaTVLabLoggedClasses containsObject:name]) continue;
+            [PinaTVLabLoggedClasses addObject:name];
+        }
+
+        PinaTVLabLog([NSString stringWithFormat:@"Relevant runtime class loaded: %@", name]);
+        PinaTVLabLogSelectorsForClass(cls, NO);
+        PinaTVLabLogSelectorsForClass(cls, YES);
+    }
+    free(classes);
+}
+
+/// Preference only. AVPlayer cannot select a rendition that the media source does not offer.
 %hook AVPlayerItem
 
 - (void)setPreferredMaximumResolution:(CGSize)resolution {
     if (PinaTVLabEnabled) {
         CGSize preferred = CGSizeMake(1920.0, 1080.0);
         PinaTVLabLog([NSString stringWithFormat:
-            @"Requested maximum resolution %.0fx%.0f; setting preference to 1920x1080",
+            @"AVPlayerItem max-resolution request %.0fx%.0f; preferring 1920x1080",
             resolution.width, resolution.height]);
         %orig(preferred);
         return;
@@ -26,21 +103,14 @@ static void PinaTVLabLog(NSString *message) {
 
 %end
 
-/// Diagnostic-only view scan. It does not remove views or block ad SDK calls.
-/// Runtime class names help identify the exact ad presentation path before implementing
-/// a narrowly scoped, authorized change in the app's source/build configuration.
+/// Logs likely ad views. This does not remove views or block ad SDK requests.
 static void PinaTVLabLogRelevantViews(UIView *view) {
     if (!view) return;
     NSString *className = NSStringFromClass([view class]);
-    NSString *lower = className.lowercaseString;
-    if ([lower containsString:@"tradplus"] ||
-        [lower containsString:@"splashad"] ||
-        [lower containsString:@"bannerad"] ||
-        [lower containsString:@"rewardad"] ||
-        [lower containsString:@"googlemobileads"] ||
-        [lower containsString:@"pangle"] ||
-        [lower containsString:@"vungle"] ||
-        [lower containsString:@"unityads"]) {
+    NSArray<NSString *> *needles = @[@"tradplus", @"splashad", @"bannerad",
+        @"rewardad", @"interstitialad", @"googlemobileads", @"pangle",
+        @"vungle", @"unityads"];
+    if (PinaTVLabContainsAny(className, needles)) {
         PinaTVLabLog([NSString stringWithFormat:@"Observed ad-related view class: %@", className]);
     }
     for (UIView *child in view.subviews) {
@@ -53,8 +123,19 @@ static void PinaTVLabLogRelevantViews(UIView *view) {
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
     if (PinaTVLabEnabled) {
+        PinaTVLabScanRuntimeClasses();
         PinaTVLabLogRelevantViews(self.view);
     }
+}
+
+- (void)presentViewController:(UIViewController *)viewController
+                     animated:(BOOL)animated
+                   completion:(void (^)(void))completion {
+    if (PinaTVLabEnabled && viewController) {
+        PinaTVLabLog([NSString stringWithFormat:@"Modal presentation: presenter=%@ presented=%@",
+            NSStringFromClass([self class]), NSStringFromClass([viewController class])]);
+    }
+    %orig(viewController, animated, completion);
 }
 
 %end
@@ -66,6 +147,7 @@ static void PinaTVLabLogRelevantViews(UIView *view) {
             PinaTVLabEnabled = NO;
             return;
         }
-        PinaTVLabLog(@"Loaded for PinaTV. Resolution preference enabled; ad handling is diagnostic only.");
+        PinaTVLabLoggedClasses = [NSMutableSet set];
+        PinaTVLabLog(@"Loaded for PinaTV. 1080p preference and runtime diagnostics enabled; no ad/VIP checks are modified.");
     }
 }
