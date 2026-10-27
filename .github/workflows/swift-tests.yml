@@ -1,8 +1,22 @@
-name: Swift Tests
+name: Swift and IPA Utility Tests
 
 on:
   push:
+    paths:
+      - "Package.swift"
+      - "Sources/**"
+      - "Tests/**"
+      - "tests/**"
+      - "tools/inject_dylib.py"
+      - ".github/workflows/swift-tests.yml"
   pull_request:
+    paths:
+      - "Package.swift"
+      - "Sources/**"
+      - "Tests/**"
+      - "tests/**"
+      - "tools/inject_dylib.py"
+      - ".github/workflows/swift-tests.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
