@@ -55,8 +55,8 @@ static void PinaTVLabLogSelectorsForClass(Class cls, BOOL classMethods) {
 
     if (matches.count > 0) {
         NSString *kind = classMethods ? @"class" : @"instance";
-        PinaTVLabLog([NSString stringWithFormat:@"%@ selectors %@.%@: %@",
-                      kind, NSStringFromClass(cls), @"", [matches componentsJoinedByString:@", "]]);
+        PinaTVLabLog([NSString stringWithFormat:@"%@ selectors for %@: %@",
+            kind, NSStringFromClass(cls), [matches componentsJoinedByString:@", "]]);
     }
 }
 
