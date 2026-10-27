@@ -73,7 +73,7 @@ class InjectDylibTests(unittest.TestCase):
         patched = inject_load_command(original)
         _, _, _, _, ncmds, sizeofcmds, _, _ = struct.unpack_from("<IiiIIIII", patched, 0)
         self.assertEqual(ncmds, 2)
-        self.assertEqual(sizeofcmds, SEGMENT_COMMAND_SIZE + 24 + ((len(LOAD_PATH.encode()) + 1 + 7) // 8) * 8)
+        self.assertEqual(sizeofcmds, SEGMENT_COMMAND_SIZE + ((24 + len(LOAD_PATH.encode()) + 1 + 7) // 8) * 8)
         command, offset, size = load_commands(patched)[1]
         self.assertEqual(command, 0xC)  # LC_LOAD_DYLIB
         name_offset = struct.unpack_from("<I", patched, offset + 8)[0]
