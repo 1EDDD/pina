@@ -1,13 +1,15 @@
-name: Build diagnostic Theos tweak
+name: Build PinaTV diagnostic binaries
 
 on:
   push:
     paths:
       - "tweak/**"
+      - "injected/**"
       - ".github/workflows/theos-build.yml"
   pull_request:
     paths:
       - "tweak/**"
+      - "injected/**"
       - ".github/workflows/theos-build.yml"
   workflow_dispatch:
 
@@ -19,7 +21,7 @@ permissions:
   contents: read
 
 jobs:
-  build-rootless:
+  build:
     runs-on: macos-latest
     steps:
       - name: Check out repository
@@ -38,17 +40,42 @@ jobs:
           comet: false
           orion: false
 
+      - name: Build substrate-free injected dylib
+        working-directory: injected
+        run: |
+          set -euo pipefail
+          make clean all FINALPACKAGE=1
+          output="$(find .theos -type f -name 'PinaTVLabInjected.dylib' -print -quit)"
+          if [ -z "$output" ]; then
+            echo "PinaTVLabInjected.dylib was not produced."
+            find . -type f -name '*.dylib' -print
+            exit 1
+          fi
+          mkdir -p ../artifacts
+          cp "$output" ../artifacts/PinaTVLabInjected.dylib
+          file ../artifacts/PinaTVLabInjected.dylib
+
+      - name: Upload standalone dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: PinaTVLabInjected-dylib
+          path: artifacts/PinaTVLabInjected.dylib
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Build rootless diagnostic package
         working-directory: tweak
         run: |
           set -euo pipefail
           make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+          mkdir -p ../artifacts
           test -n "$(find packages -maxdepth 1 -name '*.deb' -print -quit)"
+          cp packages/*.deb ../artifacts/
 
-      - name: Upload diagnostic package
+      - name: Upload rootless tweak package
         uses: actions/upload-artifact@v4
         with:
           name: PinaTVLabTweak-rootless
-          path: tweak/packages/*.deb
+          path: artifacts/*.deb
           if-no-files-found: error
           retention-days: 14
