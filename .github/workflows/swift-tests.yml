@@ -15,5 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Set up Swift
         uses: swift-actions/setup-swift@v2
-      - name: Run unit tests
+      - name: Run Swift unit tests
         run: swift test
+      - name: Run IPA injector tests
+        run: python3 -m unittest discover -s tests -v
