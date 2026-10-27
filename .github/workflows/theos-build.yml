@@ -21,11 +21,10 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  build-injected-dylib:
     runs-on: macos-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install Theos toolchain
         uses: waruhachi/theos-action@v2.6.3
@@ -56,39 +55,74 @@ jobs:
            mkdir -p ../artifacts
            cp "$output" ../artifacts/PinaTVLabInjected.dylib
            file ../artifacts/PinaTVLabInjected.dylib
-          ) 2>&1 | tee "$RUNNER_TEMP/theos-build.log"
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: theos-build-log-${{ github.run_id }}
-          path: ${{ runner.temp }}/theos-build.log
-          if-no-files-found: warn
-          retention-days: 7
+          ) 2>&1 | tee "$RUNNER_TEMP/theos-injected.log"
 
       - name: Upload standalone dylib
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: PinaTVLabInjected-dylib
-          path: artifacts/PinaTVLabInjected.dylib
+          path: injected/artifacts/PinaTVLabInjected.dylib
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload standalone build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: theos-injected-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/theos-injected.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  build-rootless-tweak:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Theos toolchain
+        uses: waruhachi/theos-action@v2.6.3
+        with:
+          theos-src: theos/theos
+          theos-branch: master
+          sdks-src: theos/sdks
+          sdks-branch: master
+          remotelog: false
+          libgcuniversal: false
+          altlist: false
+          comet: false
+          orion: false
+
       - name: Build rootless diagnostic package
+        shell: bash
         working-directory: tweak
         run: |
-          set -euo pipefail
-          make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
-          mkdir -p ../artifacts
-          test -n "$(find packages -maxdepth 1 -name '*.deb' -print -quit)"
-          cp packages/*.deb ../artifacts/
+          set -o pipefail
+          (set -euo pipefail
+           make clean package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=rootless
+           output="$(find packages -maxdepth 1 -name '*.deb' -print -quit)"
+           if [ -z "$output" ]; then
+             echo "Theos did not produce a .deb package."
+             exit 1
+           fi
+           mkdir -p ../artifacts
+           cp packages/*.deb ../artifacts/
+          ) 2>&1 | tee "$RUNNER_TEMP/theos-tweak.log"
 
       - name: Upload rootless tweak package
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: PinaTVLabTweak-rootless
-          path: artifacts/*.deb
+          path: tweak/artifacts/*.deb
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload rootless build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: theos-tweak-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/theos-tweak.log
+          if-no-files-found: warn
+          retention-days: 7
