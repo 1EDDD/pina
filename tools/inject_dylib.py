@@ -164,9 +164,7 @@ def build_injected_ipa(
     with zipfile.ZipFile(input_ipa, "r") as source, zipfile.ZipFile(
         output_ipa, "w", compression=zipfile.ZIP_DEFLATED
     ) as target:
-        replaced = {executable_path, dylib_in_ipa_path}
-        if enable_file_sharing:
-            replaced.add(plist_path)
+        replaced = {executable_path, dylib_in_ipa_path, plist_path}
         for item in source.infolist():
             if item.filename in replaced:
                 continue
