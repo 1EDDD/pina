@@ -1,136 +1,55 @@
-import AVFoundation
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(AVFoundation)
+import AVFoundation
+#endif
 
-/// Selects an explicitly advertised 1080p HLS variant from a master playlist.
-/// This does not upscale lower-resolution streams or invent missing variants.
+/// Fetches an HLS master playlist and chooses a real, advertised 1080p rendition.
+/// Use only with media streams you own or are authorized to access.
 public enum HLS1080Selector {
-    public enum SelectionError: Error, LocalizedError {
-        case invalidUTF8
-        case no1080pVariant(availableHeights: [Int])
-        case noVariantURI
-
-        public var errorDescription: String? {
-            switch self {
-            case .invalidUTF8:
-                return "The HLS master playlist was not valid UTF-8."
-            case .no1080pVariant(let heights):
-                let values = heights.isEmpty
-                    ? "none were advertised"
-                    : "advertised heights: " + heights.map(String.init).joined(separator: ", ")
-                return "The source does not advertise a 1080p variant ((values))."
-            case .noVariantURI:
-                return "An HLS variant did not have a valid URI."
-            }
-        }
+    public enum Policy: Equatable {
+        /// Fail clearly when the source does not advertise 1080p.
+        case require1080p
+        /// Select 1080p when available, otherwise use the best advertised variant.
+        case prefer1080pAllowFallback
     }
 
-    private struct Variant {
-        let url: URL
-        let width: Int
-        let height: Int
-        let bandwidth: Int
+    public struct Result: Equatable {
+        public let variant: HLSVariant
+        public let usedFallback: Bool
     }
 
-    /// Downloads a master manifest and returns its best explicitly advertised
-    /// 1080p variant URL. Relative variant paths are resolved against masterURL.
-    public static func select1080p(
+    public static func select(
         from masterURL: URL,
-        using session: URLSession = .shared
-    ) async throws -> URL {
-        let (data, _) = try await session.data(from: masterURL)
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw SelectionError.invalidUTF8
+        policy: Policy = .require1080p,
+        session: URLSession = .shared
+    ) async throws -> Result {
+        let (data, response) = try await session.data(from: masterURL)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw URLError(.badServerResponse)
         }
-
-        let lines = text.components(separatedBy: .newlines)
-        var pending: (bandwidth: Int, width: Int, height: Int)?
-        var variants: [Variant] = []
-
-        for rawLine in lines {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty else { continue }
-
-            if line.hasPrefix("#EXT-X-STREAM-INF:") {
-                let attributes = parseAttributes(
-                    String(line.dropFirst("#EXT-X-STREAM-INF:".count))
-                )
-                let bandwidth = Int(attributes["AVERAGE-BANDWIDTH"] ?? "")
-                    ?? Int(attributes["BANDWIDTH"] ?? "")
-                    ?? 0
-
-                let resolution = (attributes["RESOLUTION"] ?? "")
-                    .split(separator: "x", omittingEmptySubsequences: false)
-                let width = resolution.count == 2 ? Int(resolution[0]) ?? 0 : 0
-                let height = resolution.count == 2 ? Int(resolution[1]) ?? 0 : 0
-                pending = (bandwidth, width, height)
-                continue
-            }
-
-            // Per RFC 8216, the URI line follows EXT-X-STREAM-INF.
-            guard !line.hasPrefix("#"), let info = pending else { continue }
-            defer { pending = nil }
-
-            guard let variantURL = URL(string: line, relativeTo: masterURL)?.absoluteURL else {
-                throw SelectionError.noVariantURI
-            }
-            variants.append(
-                Variant(
-                    url: variantURL,
-                    width: info.width,
-                    height: info.height,
-                    bandwidth: info.bandwidth
-                )
-            )
+        guard let manifest = String(data: data, encoding: .utf8) else {
+            throw HLSVariantError.emptyPlaylist
         }
-
-        let advertisedHeights = Array(Set(variants.map(\.height).filter { $0 > 0 })).sorted()
-        let candidates = variants.filter { $0.height == 1080 && $0.width >= 1920 }
-        guard let best = candidates.max(by: { $0.bandwidth < $1.bandwidth }) else {
-            throw SelectionError.no1080pVariant(availableHeights: advertisedHeights)
+        let variants = try HLSVariantParser.parse(masterPlaylist: manifest, masterURL: masterURL)
+        do {
+            return Result(variant: try HLSVariantParser.select1080p(from: variants), usedFallback: false)
+        } catch let error as HLSVariantError {
+            guard case .no1080pVariant = error, policy == .prefer1080pAllowFallback else { throw error }
+            return Result(variant: try HLSVariantParser.selectBestAvailable(from: variants), usedFallback: true)
         }
-        return best.url
     }
 
-    /// Convenience helper for AVPlayer after selecting a 1080p variant URL.
-    /// The selected source still needs to actually contain 1080p media.
-    public static func makePlayerItem(for1080pVariant url: URL) -> AVPlayerItem {
-        let item = AVPlayerItem(url: url)
-        item.preferredMaximumResolution = CGSize(width: 1920, height: 1080)
-        item.preferredPeakBitRate = 0 // no app-imposed peak bitrate cap
+    #if canImport(AVFoundation)
+    /// Creates an AVPlayerItem for the selected media playlist. Choosing a real 1080p variant
+    /// is preferable to asking the player to upscale a 720p source.
+    public static func makePlayerItem(for result: Result) -> AVPlayerItem {
+        let item = AVPlayerItem(url: result.variant.url)
+        item.preferredMaximumResolution = CGSize(width: result.variant.width, height: result.variant.height)
+        item.preferredPeakBitRate = 0
         return item
     }
-
-    /// Splits HLS attribute lists on commas while respecting quoted values.
-    private static func parseAttributes(_ input: String) -> [String: String] {
-        var pairs: [String] = []
-        var current = ""
-        var inQuotes = false
-
-        for character in input {
-            if character == "\"" {
-                inQuotes.toggle()
-                current.append(character)
-            } else if character == "," && !inQuotes {
-                pairs.append(current)
-                current = ""
-            } else {
-                current.append(character)
-            }
-        }
-        if !current.isEmpty { pairs.append(current) }
-
-        var result: [String: String] = [:]
-        for pair in pairs {
-            guard let equals = pair.firstIndex(of: "=") else { continue }
-            let key = String(pair[..<equals]).trimmingCharacters(in: .whitespaces)
-            var value = String(pair[pair.index(after: equals)...])
-                .trimmingCharacters(in: .whitespaces)
-            if value.count >= 2, value.first == "\"", value.last == "\"" {
-                value.removeFirst()
-                value.removeLast()
-            }
-            result[key] = value
-        }
-        return result
-    }
+    #endif
 }
