@@ -24,7 +24,7 @@ jobs:
   build:
     # Theos officially supports Linux -> iOS builds. This avoids depending on
     # macOS-hosted runners, which were failing before any job step could start.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
