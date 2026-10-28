@@ -57,3 +57,26 @@ The static IPA inspector reads the ZIP container and does not patch binaries. Gi
 - The standalone dylib's ad suppression is pattern-based and unverified on-device; the rootless tweak remains diagnostic-only and does not suppress ads.
 - A real 1080p result requires the source playlist to advertise 1080p and the app's actual playback path to honor the AVFoundation preference.
 - The standalone dylib and IPA injection are experimental and require successful build, re-signing, installation, and on-device validation.
+
+
+## Debug-only VIP entitlement test seam
+
+`Sources/EntitlementGate.swift` adds a test seam for an app you own. It does not patch the supplied PinaTV binary and is not connected to the injected dylib.
+
+In your own Xcode project's existing playback decision, route the **real** entitlement result through `EntitlementGate.hasVIP(serverEntitlement:)`. For example, use the return value where your app currently chooses between the 1080p playback path and its VIP prompt. In a Debug build, tests or a local QA action can call:
+
+```swift
+#if DEBUG
+DevelopmentEntitlementOverride.enableForDebugSession()
+// Exercise the same UI/playback branch as a VIP account.
+#endif
+```
+
+Call `DevelopmentEntitlementOverride.reset()` after the test. The override is in-memory, starts disabled, and cannot update StoreKit, a backend account, or any server-side entitlement. The override type is not compiled into Release configurations, and Release entitlement decisions depend only on the real value passed to the gate. Never use a client-side debug override as a production purchase-validation mechanism.
+
+Tests:
+- a real VIP entitlement remains honored;
+- a missing entitlement is denied by default;
+- Debug-only override opens the test path and can be reset.
+
+This gives UI and playback code a controlled QA seam, not an entitlement bypass for the original third-party binary. The original Xcode project is still required to wire this gate into the app's actual `VIPService` and playback code.
