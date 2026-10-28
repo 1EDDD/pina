@@ -29,7 +29,7 @@ python3 tools/inject_dylib.py \
 
 The script adds an `LC_LOAD_DYLIB` command and places the library in `Frameworks`. The output is **not signed for installation**; it must be re-signed by a legitimate sideloading tool before use. With file sharing enabled, the app's Documents folder is exposed so the log can be retrieved in Files.
 
-This experiment only requests an actual 1080p rendition and collects diagnostics. It does **not** change VIP/purchase checks, unlock paid features, or suppress ads. A player preference cannot create a 1080p source or override a server that returns only 720p. Use a test copy and expect that unsupported injection or signing workflows can cause the app not to launch.
+The standalone dylib also tries to suppress ad views and modal controllers whose runtime class names or accessibility identifiers clearly match known ad SDK patterns (including TradPlus, banner, splash, interstitial and rewarded-ad identifiers). This is best-effort UI suppression, not a complete ad blocker: it does not stop ad SDK initialization or all network requests, and unnamed/custom ad views may remain. It does **not** modify VIP or purchase state. A player preference cannot create a 1080p source or override a server that returns only 720p. Use a test copy and expect that unsupported injection or signing workflows can cause the app not to launch.
 
 A separate rootless jailbreak package is also built by the workflow as **PinaTVLabTweak-rootless**. It requires a compatible tweak-injection environment and is not a normal sideloaded IPA.
 
@@ -54,6 +54,6 @@ The static IPA inspector reads the ZIP container and does not patch binaries. Gi
 ## Limitations
 
 - The original PinaTV Swift/Xcode project is not present.
-- No VIP or ad behavior has been patched.
+- The standalone dylib's ad suppression is pattern-based and unverified on-device; the rootless tweak remains diagnostic-only and does not suppress ads.
 - A real 1080p result requires the source playlist to advertise 1080p and the app's actual playback path to honor the AVFoundation preference.
 - The standalone dylib and IPA injection are experimental and require successful build, re-signing, installation, and on-device validation.
