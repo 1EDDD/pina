@@ -1,17 +1,15 @@
 #import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
-static BOOL PinaTVLabInjectedEnabled = NO;
+static BOOL PinaTVLabQualityEnabled = NO;
 static void (*PinaTVLabOriginalSetMaximumResolution)(id, SEL, CGSize);
+static void (*PinaTVLabOriginalSetPeakBitRate)(id, SEL, double);
 static id (*PinaTVLabOriginalInitWithURL)(id, SEL, NSURL *);
 static id (*PinaTVLabOriginalInitWithAsset)(id, SEL, AVAsset *);
-static void (*PinaTVLabOriginalAddSubview)(id, SEL, UIView *);
-static void (*PinaTVLabOriginalPresentViewController)(id, SEL, UIViewController *, BOOL, void (^)(void));
 
 static void PinaTVLabWriteLog(NSString *message) {
-    NSLog(@"[PinaTVLabInjected] %@", message);
+    NSLog(@"[PinaTVLabQuality] %@", message);
     @synchronized ([NSObject class]) {
         NSArray<NSString *> *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
         NSString *documents = paths.firstObject;
@@ -33,110 +31,143 @@ static void PinaTVLabWriteLog(NSString *message) {
     }
 }
 
-static BOOL PinaTVLabStringLooksLikeAd(NSString *value) {
-    if (![value isKindOfClass:[NSString class]] || value.length == 0) return NO;
-    NSString *lower = value.lowercaseString;
-    NSArray<NSString *> *tokens = @[
-        @"tradplus", @"bannerad", @"banner_ad", @"adbanner", @"adview",
-        @"ad_view", @"adcontainer", @"ad_container", @"splashad", @"splash_ad",
-        @"interstitialad", @"interstitial_ad", @"rewardedad", @"reward_ad",
-        @"rewardedad", @"nativead", @"native_ad", @"googlemobileads", @"admob",
-        @"pangle", @"vungle", @"unityads", @"ksad", @"gdtad", @"adloader",
-        @"ad_loader", @"admanager", @"ad_manager", @"advertisingview"
-    ];
-    for (NSString *token in tokens) {
-        if ([lower containsString:token]) return YES;
-    }
-    return NO;
-}
-
-static BOOL PinaTVLabViewIdentifierLooksLikeAd(UIView *view) {
-    if (!view) return NO;
-    return PinaTVLabStringLooksLikeAd(NSStringFromClass(view.class)) ||
-        PinaTVLabStringLooksLikeAd(view.accessibilityIdentifier) ||
-        PinaTVLabStringLooksLikeAd(view.accessibilityLabel);
-}
-
-static BOOL PinaTVLabControllerLooksLikeAd(UIViewController *controller) {
-    if (!controller) return NO;
-    // Do not inspect the entire view tree here: an ordinary screen may contain a banner.
-    return PinaTVLabStringLooksLikeAd(NSStringFromClass(controller.class)) ||
-        PinaTVLabStringLooksLikeAd(controller.title) ||
-        PinaTVLabStringLooksLikeAd(controller.restorationIdentifier);
-}
-
-static void PinaTVLabHookAddSubview(UIView *self, SEL selector, UIView *view) {
-    if (PinaTVLabInjectedEnabled && PinaTVLabViewIdentifierLooksLikeAd(view)) {
-        PinaTVLabWriteLog([NSString stringWithFormat:@"suppressed recognizable ad view: %@", NSStringFromClass(view.class)]);
-        return;
-    }
-    if (PinaTVLabOriginalAddSubview) PinaTVLabOriginalAddSubview(self, selector, view);
-}
-
-static void PinaTVLabHookPresentViewController(UIViewController *self, SEL selector,
-                                               UIViewController *viewController,
-                                               BOOL animated, void (^completion)(void)) {
-    if (PinaTVLabInjectedEnabled && PinaTVLabControllerLooksLikeAd(viewController)) {
-        PinaTVLabWriteLog([NSString stringWithFormat:@"blocked recognizable ad modal: %@", NSStringFromClass(viewController.class)]);
-        if (completion) completion();
-        return;
-    }
-    if (PinaTVLabOriginalPresentViewController) {
-        PinaTVLabOriginalPresentViewController(self, selector, viewController, animated, completion);
-    }
-}
-
 static void PinaTVLabLogURL(NSURL *url) {
     if (!url) return;
-    // Never write query or fragment values because media URLs may contain credentials.
+    // Query and fragment can contain signed credentials, so never log them.
     NSString *host = url.host.length ? url.host : @"<no-host>";
     NSString *path = url.path.length ? url.path : @"/";
     PinaTVLabWriteLog([NSString stringWithFormat:@"media host/path: %@%@", host, path]);
 }
 
+static void PinaTVLabApplyQualityPreferences(AVPlayerItem *item) {
+    if (!item || !PinaTVLabQualityEnabled) return;
+
+    CGSize preferred = CGSizeMake(1920.0, 1080.0);
+    if (PinaTVLabOriginalSetMaximumResolution) {
+        PinaTVLabOriginalSetMaximumResolution(item, @selector(setPreferredMaximumResolution:), preferred);
+        PinaTVLabWriteLog(@"requested preferredMaximumResolution 1920x1080");
+    } else {
+        PinaTVLabWriteLog(@"preferredMaximumResolution setter unavailable on this iOS version");
+    }
+
+    // Zero means no client-side preferred peak bitrate cap; it does not invent bandwidth or source quality.
+    if (PinaTVLabOriginalSetPeakBitRate) {
+        PinaTVLabOriginalSetPeakBitRate(item, @selector(setPreferredPeakBitRate:), 0.0);
+        PinaTVLabWriteLog(@"removed AVPlayerItem preferred peak-bitrate cap");
+    }
+}
+
+static char PinaTVLabObserverAssociationKey;
+
+@interface PinaTVLabQualityObserver : NSObject
+@property(nonatomic, weak) AVPlayerItem *item;
+- (instancetype)initWithItem:(AVPlayerItem *)item;
+@end
+
+@implementation PinaTVLabQualityObserver
+
+- (instancetype)initWithItem:(AVPlayerItem *)item {
+    self = [super init];
+    if (self) {
+        _item = item;
+        @try {
+            [item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];
+            [item addObserver:self forKeyPath:@"presentationSize" options:NSKeyValueObservingOptionNew context:NULL];
+        } @catch (NSException *exception) {
+            PinaTVLabWriteLog([NSString stringWithFormat:@"could not observe player item: %@", exception.name]);
+        }
+    }
+    return self;
+}
+
+- (void)observeValueForKeyPath:(NSString *)keyPath
+                     ofObject:(id)object
+                       change:(NSDictionary<NSKeyValueChangeKey,id> *)change
+                      context:(void *)context {
+    if (object != self.item) {
+        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
+        return;
+    }
+
+    if ([keyPath isEqualToString:@"presentationSize"]) {
+        CGSize size = self.item.presentationSize;
+        if (size.width > 0 && size.height > 0) {
+            PinaTVLabWriteLog([NSString stringWithFormat:@"actual video presentation size: %.0fx%.0f", size.width, size.height]);
+        }
+    } else if ([keyPath isEqualToString:@"status"]) {
+        if (self.item.status == AVPlayerItemStatusReadyToPlay) {
+            CGSize size = self.item.presentationSize;
+            PinaTVLabWriteLog([NSString stringWithFormat:@"player item ready; current presentation size %.0fx%.0f", size.width, size.height]);
+        } else if (self.item.status == AVPlayerItemStatusFailed) {
+            NSString *reason = self.item.error.localizedDescription ?: @"unknown AVPlayerItem error";
+            PinaTVLabWriteLog([NSString stringWithFormat:@"player item failed: %@", reason]);
+        }
+    }
+}
+
+- (void)dealloc {
+    AVPlayerItem *item = self.item;
+    if (!item) return;
+    @try {
+        [item removeObserver:self forKeyPath:@"status"];
+        [item removeObserver:self forKeyPath:@"presentationSize"];
+    } @catch (__unused NSException *exception) {
+    }
+}
+@end
+
+static void PinaTVLabAttachObserver(AVPlayerItem *item) {
+    if (!item) return;
+    PinaTVLabQualityObserver *observer = [[PinaTVLabQualityObserver alloc] initWithItem:item];
+    objc_setAssociatedObject(item, &PinaTVLabObserverAssociationKey, observer, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 static void PinaTVLabHookSetMaximumResolution(id self, SEL selector, CGSize requested) {
     if (!PinaTVLabOriginalSetMaximumResolution) return;
-    if (!PinaTVLabInjectedEnabled) {
+    if (!PinaTVLabQualityEnabled) {
         PinaTVLabOriginalSetMaximumResolution(self, selector, requested);
         return;
     }
     CGSize preferred = CGSizeMake(1920.0, 1080.0);
     if (requested.width != preferred.width || requested.height != preferred.height) {
-        PinaTVLabWriteLog([NSString stringWithFormat:
-            @"preferredMaximumResolution changed from %.0fx%.0f to 1920x1080",
-            requested.width, requested.height]);
+        PinaTVLabWriteLog([NSString stringWithFormat:@"overrode requested maximum resolution %.0fx%.0f -> 1920x1080",
+                           requested.width, requested.height]);
     }
     PinaTVLabOriginalSetMaximumResolution(self, selector, preferred);
 }
 
+static void PinaTVLabHookSetPeakBitRate(id self, SEL selector, double requested) {
+    if (!PinaTVLabOriginalSetPeakBitRate) return;
+    if (!PinaTVLabQualityEnabled) {
+        PinaTVLabOriginalSetPeakBitRate(self, selector, requested);
+        return;
+    }
+    if (requested > 0.0) {
+        PinaTVLabWriteLog([NSString stringWithFormat:@"removed client bitrate cap of %.0f bits/sec", requested]);
+    }
+    PinaTVLabOriginalSetPeakBitRate(self, selector, 0.0);
+}
+
 static id PinaTVLabHookInitWithURL(id self, SEL selector, NSURL *url) {
-    id item = PinaTVLabOriginalInitWithURL
-        ? PinaTVLabOriginalInitWithURL(self, selector, url) : nil;
-    if (PinaTVLabInjectedEnabled && item) {
+    id item = PinaTVLabOriginalInitWithURL ? PinaTVLabOriginalInitWithURL(self, selector, url) : nil;
+    if (PinaTVLabQualityEnabled && item) {
         PinaTVLabLogURL(url);
-        if (PinaTVLabOriginalSetMaximumResolution) {
-            PinaTVLabOriginalSetMaximumResolution(item, @selector(setPreferredMaximumResolution:),
-                                                   CGSizeMake(1920.0, 1080.0));
-        }
-        PinaTVLabWriteLog(@"applied 1920x1080 AVPlayerItem preference (server must supply 1080p)");
+        PinaTVLabApplyQualityPreferences((AVPlayerItem *)item);
+        PinaTVLabAttachObserver((AVPlayerItem *)item);
     }
     return item;
 }
 
 static id PinaTVLabHookInitWithAsset(id self, SEL selector, AVAsset *asset) {
-    id item = PinaTVLabOriginalInitWithAsset
-        ? PinaTVLabOriginalInitWithAsset(self, selector, asset) : nil;
-    if (PinaTVLabInjectedEnabled && item) {
+    id item = PinaTVLabOriginalInitWithAsset ? PinaTVLabOriginalInitWithAsset(self, selector, asset) : nil;
+    if (PinaTVLabQualityEnabled && item) {
         if ([asset isKindOfClass:[AVURLAsset class]]) {
             PinaTVLabLogURL(((AVURLAsset *)asset).URL);
         } else {
-            PinaTVLabWriteLog(@"AVPlayerItem initialized with non-URL AVAsset");
+            PinaTVLabWriteLog([NSString stringWithFormat:@"AVPlayerItem initialized with asset class %@", NSStringFromClass(asset.class)]);
         }
-        if (PinaTVLabOriginalSetMaximumResolution) {
-            PinaTVLabOriginalSetMaximumResolution(item, @selector(setPreferredMaximumResolution:),
-                                                   CGSizeMake(1920.0, 1080.0));
-        }
-        PinaTVLabWriteLog(@"applied 1920x1080 AVPlayerItem preference (server must supply 1080p)");
+        PinaTVLabApplyQualityPreferences((AVPlayerItem *)item);
+        PinaTVLabAttachObserver((AVPlayerItem *)item);
     }
     return item;
 }
@@ -145,8 +176,8 @@ static void PinaTVLabInstallMethodHook(Class cls, SEL selector, IMP replacement,
     if (!cls || !selector || !replacement || !originalOut) return;
     Method method = class_getInstanceMethod(cls, selector);
     if (!method) {
-        PinaTVLabWriteLog([NSString stringWithFormat:@"method not found: %@ %@",
-            NSStringFromClass(cls), NSStringFromSelector(selector)]);
+        PinaTVLabWriteLog([NSString stringWithFormat:@"method unavailable: %@ %@",
+                           NSStringFromClass(cls), NSStringFromSelector(selector)]);
         return;
     }
     *originalOut = method_setImplementation(method, replacement);
@@ -157,21 +188,18 @@ static void PinaTVLabInjectedInitialize(void) {
     @autoreleasepool {
         NSString *bundleID = NSBundle.mainBundle.bundleIdentifier ?: @"unknown";
         if (![bundleID isEqualToString:@"com.kevin.pinatv"]) return;
-        PinaTVLabInjectedEnabled = YES;
+        PinaTVLabQualityEnabled = YES;
 
         Class itemClass = objc_getClass("AVPlayerItem");
         PinaTVLabInstallMethodHook(itemClass, @selector(setPreferredMaximumResolution:),
             (IMP)PinaTVLabHookSetMaximumResolution, (IMP *)&PinaTVLabOriginalSetMaximumResolution);
+        PinaTVLabInstallMethodHook(itemClass, @selector(setPreferredPeakBitRate:),
+            (IMP)PinaTVLabHookSetPeakBitRate, (IMP *)&PinaTVLabOriginalSetPeakBitRate);
         PinaTVLabInstallMethodHook(itemClass, @selector(initWithURL:),
             (IMP)PinaTVLabHookInitWithURL, (IMP *)&PinaTVLabOriginalInitWithURL);
         PinaTVLabInstallMethodHook(itemClass, @selector(initWithAsset:),
             (IMP)PinaTVLabHookInitWithAsset, (IMP *)&PinaTVLabOriginalInitWithAsset);
-        PinaTVLabInstallMethodHook(UIView.class, @selector(addSubview:),
-            (IMP)PinaTVLabHookAddSubview, (IMP *)&PinaTVLabOriginalAddSubview);
-        PinaTVLabInstallMethodHook(UIViewController.class,
-            @selector(presentViewController:animated:completion:),
-            (IMP)PinaTVLabHookPresentViewController, (IMP *)&PinaTVLabOriginalPresentViewController);
 
-        PinaTVLabWriteLog(@"loaded; 1080p preference and recognizable ad-view/modal suppression enabled; no VIP/purchase state changed");
+        PinaTVLabWriteLog(@"quality-only mode loaded; no UIKit hooks, ad suppression, or VIP/purchase-state changes");
     }
 }
