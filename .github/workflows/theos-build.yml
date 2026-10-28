@@ -47,15 +47,32 @@ jobs:
           (set -euo pipefail
            make clean all FINALPACKAGE=1
            # Theos library.mk versions differ on whether they prefix the product with "lib".
-           output="$(find . -type f \( -name 'PinaTVLabInjected.dylib' -o -name 'libPinaTVLabInjected.dylib' \) -not -path './theos/*' -not -path './.git/*' -not -path './artifacts/*' -print -quit)"
+           # Select the actual Mach-O dylib, not a DWARF file nested in a .dSYM bundle.
+           # Prefer the merged universal output when present.
+           preferred_output=""
+           fallback_output=""
+           while IFS= read -r candidate; do
+             description="$(file "$candidate")"
+             if printf '%s' "$description" | grep -q 'dynamically linked shared library'; then
+               if printf '%s' "$description" | grep -q 'universal binary'; then
+                 preferred_output="$candidate"
+                 break
+               elif [ -z "$fallback_output" ]; then
+                 fallback_output="$candidate"
+               fi
+             fi
+           done < <(find . -type f \\( -name 'PinaTVLabInjected.dylib' -o -name 'libPinaTVLabInjected.dylib' \\) -not -path '*/.dSYM/*' -not -path './.git/*' -not -path './artifacts/*' -print)
+           output="$preferred_output"
+           if [ -z "$output" ]; then output="$fallback_output"; fi
            if [ -z "$output" ]; then
-             echo "PinaTVLabInjected.dylib was not produced. Candidate dylibs:"
-             find . -type f -name '*.dylib' -not -path './theos/*' -not -path './.git/*' -print
+             echo "A valid PinaTVLabInjected.dylib was not produced. Candidate dylibs:"
+             find . -type f -name '*.dylib' -not -path '*/.dSYM/*' -not -path './.git/*' -print
              exit 1
            fi
            mkdir -p ../artifacts
            cp "$output" ../artifacts/PinaTVLabInjected.dylib
            file ../artifacts/PinaTVLabInjected.dylib
+           file ../artifacts/PinaTVLabInjected.dylib | grep -q 'dynamically linked shared library'
           ) 2>&1 | tee "$RUNNER_TEMP/theos-injected.log"
 
       - name: Build rootless diagnostic package
