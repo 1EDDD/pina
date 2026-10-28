@@ -61,7 +61,7 @@ jobs:
                  fallback_output="$candidate"
                fi
              fi
-           done < <(find . -type f \\( -name 'PinaTVLabInjected.dylib' -o -name 'libPinaTVLabInjected.dylib' \\) -not -path '*/.dSYM/*' -not -path './.git/*' -not -path './artifacts/*' -print)
+           done < <(find . -type f \( -name 'PinaTVLabInjected.dylib' -o -name 'libPinaTVLabInjected.dylib' \) -not -path '*/.dSYM/*' -not -path './.git/*' -not -path './artifacts/*' -print)
            output="$preferred_output"
            if [ -z "$output" ]; then output="$fallback_output"; fi
            if [ -z "$output" ]; then
