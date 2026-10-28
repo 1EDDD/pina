@@ -46,10 +46,11 @@ jobs:
           set -o pipefail
           (set -euo pipefail
            make clean all FINALPACKAGE=1
-           output="$(find . -type f -name 'PinaTVLabInjected.dylib' -not -path './theos/*' -not -path './.git/*' -print -quit)"
+           # Theos library.mk versions differ on whether they prefix the product with "lib".
+           output="$(find . -type f \( -name 'PinaTVLabInjected.dylib' -o -name 'libPinaTVLabInjected.dylib' \) -not -path './theos/*' -not -path './.git/*' -not -path './artifacts/*' -print -quit)"
            if [ -z "$output" ]; then
-             echo "PinaTVLabInjected.dylib was not produced."
-             find . -type f -name '*.dylib' -not -path './theos/*' -print
+             echo "PinaTVLabInjected.dylib was not produced. Candidate dylibs:"
+             find . -type f -name '*.dylib' -not -path './theos/*' -not -path './.git/*' -print
              exit 1
            fi
            mkdir -p ../artifacts
@@ -62,7 +63,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PinaTVLabInjected-dylib
-          path: injected/artifacts/PinaTVLabInjected.dylib
+          path: artifacts/PinaTVLabInjected.dylib
           if-no-files-found: error
           retention-days: 14
 
@@ -114,7 +115,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PinaTVLabTweak-rootless
-          path: tweak/artifacts/*.deb
+          path: artifacts/*.deb
           if-no-files-found: error
           retention-days: 14
 
