@@ -50,34 +50,23 @@ static BOOL PinaTVLabStringLooksLikeAd(NSString *value) {
     return NO;
 }
 
-static BOOL PinaTVLabViewLooksLikeAd(UIView *view, NSUInteger depth) {
-    if (!view || depth > 5) return NO;
-    if (PinaTVLabStringLooksLikeAd(NSStringFromClass(view.class)) ||
+static BOOL PinaTVLabViewIdentifierLooksLikeAd(UIView *view) {
+    if (!view) return NO;
+    return PinaTVLabStringLooksLikeAd(NSStringFromClass(view.class)) ||
         PinaTVLabStringLooksLikeAd(view.accessibilityIdentifier) ||
-        PinaTVLabStringLooksLikeAd(view.accessibilityLabel)) {
-        return YES;
-    }
-    // Some ad SDKs use generic container views but expose a recognizable child.
-    for (UIView *child in view.subviews) {
-        if (PinaTVLabViewLooksLikeAd(child, depth + 1)) return YES;
-    }
-    return NO;
+        PinaTVLabStringLooksLikeAd(view.accessibilityLabel);
 }
 
 static BOOL PinaTVLabControllerLooksLikeAd(UIViewController *controller) {
     if (!controller) return NO;
-    if (PinaTVLabStringLooksLikeAd(NSStringFromClass(controller.class)) ||
+    // Do not inspect the entire view tree here: an ordinary screen may contain a banner.
+    return PinaTVLabStringLooksLikeAd(NSStringFromClass(controller.class)) ||
         PinaTVLabStringLooksLikeAd(controller.title) ||
-        PinaTVLabStringLooksLikeAd(controller.restorationIdentifier)) {
-        return YES;
-    }
-    // Only inspect an already-loaded controller view, avoiding forced view loading.
-    if (controller.isViewLoaded && PinaTVLabViewLooksLikeAd(controller.view, 0)) return YES;
-    return NO;
+        PinaTVLabStringLooksLikeAd(controller.restorationIdentifier);
 }
 
 static void PinaTVLabHookAddSubview(UIView *self, SEL selector, UIView *view) {
-    if (PinaTVLabInjectedEnabled && PinaTVLabViewLooksLikeAd(view, 0)) {
+    if (PinaTVLabInjectedEnabled && PinaTVLabViewIdentifierLooksLikeAd(view)) {
         PinaTVLabWriteLog([NSString stringWithFormat:@"suppressed recognizable ad view: %@", NSStringFromClass(view.class)]);
         return;
     }
