@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 
@@ -6,6 +7,8 @@ static BOOL PinaTVLabInjectedEnabled = NO;
 static void (*PinaTVLabOriginalSetMaximumResolution)(id, SEL, CGSize);
 static id (*PinaTVLabOriginalInitWithURL)(id, SEL, NSURL *);
 static id (*PinaTVLabOriginalInitWithAsset)(id, SEL, AVAsset *);
+static void (*PinaTVLabOriginalAddSubview)(id, SEL, UIView *);
+static void (*PinaTVLabOriginalPresentViewController)(id, SEL, UIViewController *, BOOL, void (^)(void));
 
 static void PinaTVLabWriteLog(NSString *message) {
     NSLog(@"[PinaTVLabInjected] %@", message);
@@ -27,6 +30,70 @@ static void PinaTVLabWriteLog(NSString *message) {
         } @finally {
             [handle closeFile];
         }
+    }
+}
+
+static BOOL PinaTVLabStringLooksLikeAd(NSString *value) {
+    if (![value isKindOfClass:[NSString class]] || value.length == 0) return NO;
+    NSString *lower = value.lowercaseString;
+    NSArray<NSString *> *tokens = @[
+        @"tradplus", @"bannerad", @"banner_ad", @"adbanner", @"adview",
+        @"ad_view", @"adcontainer", @"ad_container", @"splashad", @"splash_ad",
+        @"interstitialad", @"interstitial_ad", @"rewardedad", @"reward_ad",
+        @"rewardedad", @"nativead", @"native_ad", @"googlemobileads", @"admob",
+        @"pangle", @"vungle", @"unityads", @"ksad", @"gdtad", @"adloader",
+        @"ad_loader", @"admanager", @"ad_manager", @"advertisingview"
+    ];
+    for (NSString *token in tokens) {
+        if ([lower containsString:token]) return YES;
+    }
+    return NO;
+}
+
+static BOOL PinaTVLabViewLooksLikeAd(UIView *view, NSUInteger depth) {
+    if (!view || depth > 5) return NO;
+    if (PinaTVLabStringLooksLikeAd(NSStringFromClass(view.class)) ||
+        PinaTVLabStringLooksLikeAd(view.accessibilityIdentifier) ||
+        PinaTVLabStringLooksLikeAd(view.accessibilityLabel)) {
+        return YES;
+    }
+    // Some ad SDKs use generic container views but expose a recognizable child.
+    for (UIView *child in view.subviews) {
+        if (PinaTVLabViewLooksLikeAd(child, depth + 1)) return YES;
+    }
+    return NO;
+}
+
+static BOOL PinaTVLabControllerLooksLikeAd(UIViewController *controller) {
+    if (!controller) return NO;
+    if (PinaTVLabStringLooksLikeAd(NSStringFromClass(controller.class)) ||
+        PinaTVLabStringLooksLikeAd(controller.title) ||
+        PinaTVLabStringLooksLikeAd(controller.restorationIdentifier)) {
+        return YES;
+    }
+    // Only inspect an already-loaded controller view, avoiding forced view loading.
+    if (controller.isViewLoaded && PinaTVLabViewLooksLikeAd(controller.view, 0)) return YES;
+    return NO;
+}
+
+static void PinaTVLabHookAddSubview(UIView *self, SEL selector, UIView *view) {
+    if (PinaTVLabInjectedEnabled && PinaTVLabViewLooksLikeAd(view, 0)) {
+        PinaTVLabWriteLog([NSString stringWithFormat:@"suppressed recognizable ad view: %@", NSStringFromClass(view.class)]);
+        return;
+    }
+    if (PinaTVLabOriginalAddSubview) PinaTVLabOriginalAddSubview(self, selector, view);
+}
+
+static void PinaTVLabHookPresentViewController(UIViewController *self, SEL selector,
+                                               UIViewController *viewController,
+                                               BOOL animated, void (^completion)(void)) {
+    if (PinaTVLabInjectedEnabled && PinaTVLabControllerLooksLikeAd(viewController)) {
+        PinaTVLabWriteLog([NSString stringWithFormat:@"blocked recognizable ad modal: %@", NSStringFromClass(viewController.class)]);
+        if (completion) completion();
+        return;
+    }
+    if (PinaTVLabOriginalPresentViewController) {
+        PinaTVLabOriginalPresentViewController(self, selector, viewController, animated, completion);
     }
 }
 
@@ -110,7 +177,12 @@ static void PinaTVLabInjectedInitialize(void) {
             (IMP)PinaTVLabHookInitWithURL, (IMP *)&PinaTVLabOriginalInitWithURL);
         PinaTVLabInstallMethodHook(itemClass, @selector(initWithAsset:),
             (IMP)PinaTVLabHookInitWithAsset, (IMP *)&PinaTVLabOriginalInitWithAsset);
+        PinaTVLabInstallMethodHook(UIView.class, @selector(addSubview:),
+            (IMP)PinaTVLabHookAddSubview, (IMP *)&PinaTVLabOriginalAddSubview);
+        PinaTVLabInstallMethodHook(UIViewController.class,
+            @selector(presentViewController:animated:completion:),
+            (IMP)PinaTVLabHookPresentViewController, (IMP *)&PinaTVLabOriginalPresentViewController);
 
-        PinaTVLabWriteLog(@"loaded; preference and sanitized URL diagnostics enabled; VIP/ad logic is unchanged");
+        PinaTVLabWriteLog(@"loaded; 1080p preference and recognizable ad-view/modal suppression enabled; no VIP/purchase state changed");
     }
 }
