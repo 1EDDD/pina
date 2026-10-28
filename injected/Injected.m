@@ -57,71 +57,6 @@ static void PinaTVLabApplyQualityPreferences(AVPlayerItem *item) {
     }
 }
 
-static char PinaTVLabObserverAssociationKey;
-
-@interface PinaTVLabQualityObserver : NSObject
-@property(nonatomic, weak) AVPlayerItem *item;
-- (instancetype)initWithItem:(AVPlayerItem *)item;
-@end
-
-@implementation PinaTVLabQualityObserver
-
-- (instancetype)initWithItem:(AVPlayerItem *)item {
-    self = [super init];
-    if (self) {
-        _item = item;
-        @try {
-            [item addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];
-            [item addObserver:self forKeyPath:@"presentationSize" options:NSKeyValueObservingOptionNew context:NULL];
-        } @catch (NSException *exception) {
-            PinaTVLabWriteLog([NSString stringWithFormat:@"could not observe player item: %@", exception.name]);
-        }
-    }
-    return self;
-}
-
-- (void)observeValueForKeyPath:(NSString *)keyPath
-                     ofObject:(id)object
-                       change:(NSDictionary<NSKeyValueChangeKey,id> *)change
-                      context:(void *)context {
-    if (object != self.item) {
-        [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
-        return;
-    }
-
-    if ([keyPath isEqualToString:@"presentationSize"]) {
-        CGSize size = self.item.presentationSize;
-        if (size.width > 0 && size.height > 0) {
-            PinaTVLabWriteLog([NSString stringWithFormat:@"actual video presentation size: %.0fx%.0f", size.width, size.height]);
-        }
-    } else if ([keyPath isEqualToString:@"status"]) {
-        if (self.item.status == AVPlayerItemStatusReadyToPlay) {
-            CGSize size = self.item.presentationSize;
-            PinaTVLabWriteLog([NSString stringWithFormat:@"player item ready; current presentation size %.0fx%.0f", size.width, size.height]);
-        } else if (self.item.status == AVPlayerItemStatusFailed) {
-            NSString *reason = self.item.error.localizedDescription ?: @"unknown AVPlayerItem error";
-            PinaTVLabWriteLog([NSString stringWithFormat:@"player item failed: %@", reason]);
-        }
-    }
-}
-
-- (void)dealloc {
-    AVPlayerItem *item = self.item;
-    if (!item) return;
-    @try {
-        [item removeObserver:self forKeyPath:@"status"];
-        [item removeObserver:self forKeyPath:@"presentationSize"];
-    } @catch (__unused NSException *exception) {
-    }
-}
-@end
-
-static void PinaTVLabAttachObserver(AVPlayerItem *item) {
-    if (!item) return;
-    PinaTVLabQualityObserver *observer = [[PinaTVLabQualityObserver alloc] initWithItem:item];
-    objc_setAssociatedObject(item, &PinaTVLabObserverAssociationKey, observer, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
 static void PinaTVLabHookSetMaximumResolution(id self, SEL selector, CGSize requested) {
     if (!PinaTVLabOriginalSetMaximumResolution) return;
     if (!PinaTVLabQualityEnabled) {
@@ -153,7 +88,6 @@ static id PinaTVLabHookInitWithURL(id self, SEL selector, NSURL *url) {
     if (PinaTVLabQualityEnabled && item) {
         PinaTVLabLogURL(url);
         PinaTVLabApplyQualityPreferences((AVPlayerItem *)item);
-        PinaTVLabAttachObserver((AVPlayerItem *)item);
     }
     return item;
 }
