@@ -21,23 +21,23 @@ permissions:
   contents: read
 
 jobs:
-  build-injected-dylib:
-    runs-on: macos-latest
+  build:
+    # Theos officially supports Linux -> iOS builds. This avoids depending on
+    # macOS-hosted runners, which were failing before any job step could start.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Theos toolchain
-        uses: waruhachi/theos-action@v2.6.3
-        with:
-          theos-src: theos/theos
-          theos-branch: master
-          sdks-src: theos/sdks
-          sdks-branch: master
-          remotelog: false
-          libgcuniversal: false
-          altlist: false
-          comet: false
-          orion: false
+      - name: Install Theos and iOS SDKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          export THEOS="$GITHUB_WORKSPACE/theos"
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)" 2>&1 | tee "$RUNNER_TEMP/theos-install.log"
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          test -f "$THEOS/makefiles/common.mk"
+          test -d "$THEOS/sdks"
 
       - name: Build substrate-free injected dylib
         shell: bash
@@ -58,42 +58,6 @@ jobs:
            file ../artifacts/PinaTVLabInjected.dylib
           ) 2>&1 | tee "$RUNNER_TEMP/theos-injected.log"
 
-      - name: Upload standalone dylib
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: PinaTVLabInjected-dylib
-          path: artifacts/PinaTVLabInjected.dylib
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload standalone build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: theos-injected-log-${{ github.run_id }}
-          path: ${{ runner.temp }}/theos-injected.log
-          if-no-files-found: warn
-          retention-days: 7
-
-  build-rootless-tweak:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Theos toolchain
-        uses: waruhachi/theos-action@v2.6.3
-        with:
-          theos-src: theos/theos
-          theos-branch: master
-          sdks-src: theos/sdks
-          sdks-branch: master
-          remotelog: false
-          libgcuniversal: false
-          altlist: false
-          comet: false
-          orion: false
-
       - name: Build rootless diagnostic package
         shell: bash
         working-directory: tweak
@@ -107,23 +71,24 @@ jobs:
              exit 1
            fi
            mkdir -p ../artifacts
-           cp packages/*.deb ../artifacts/
+           cp "$output" ../artifacts/PinaTVLabTweak-rootless.deb
+           file ../artifacts/PinaTVLabTweak-rootless.deb
           ) 2>&1 | tee "$RUNNER_TEMP/theos-tweak.log"
 
-      - name: Upload rootless tweak package
+      - name: Upload build binaries
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: PinaTVLabTweak-rootless
-          path: artifacts/*.deb
+          name: PinaTVLab-binaries
+          path: artifacts/*
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload rootless build log
+      - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: theos-tweak-log-${{ github.run_id }}
-          path: ${{ runner.temp }}/theos-tweak.log
+          name: PinaTVLab-build-logs-${{ github.run_id }}
+          path: ${{ runner.temp }}/theos-*.log
           if-no-files-found: warn
           retention-days: 7
